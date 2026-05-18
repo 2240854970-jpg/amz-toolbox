@@ -30,12 +30,15 @@ export async function POST(req: NextRequest) {
 
     const response = await callAI({
       model: preferredModel as "deepseek" | "gemini" | "claude",
-      systemPrompt: `你是亚马逊选品专家。只能基于「实时搜索数据」分析，禁止编造数字。每条结论引用数据。数据不足时标注"需工具核实"。`,
+      systemPrompt: `你是亚马逊选品专家。请基于搜索数据分析，数据不足时用你的亚马逊知识补充，标注"基于经验"。
+报告框架：1.市场概况 2.竞争格局 3.关键词矩阵 4.利润测算 5.差异化空间 6.综合建议`,
       userPrompt: `选品：${method} | ${input} | 站点：${marketplace || "US"}\n\n=== 实时数据 ===\n${realData || "（搜索无结果，请基于你的亚马逊知识给出定性分析）"}\n=== 请生成完整选品报告（市场概况、竞争格局、关键词、利润、差异化、建议） ===`,
     });
 
+    const reportText = response.text || `（AI 未生成报告，请查看原始搜索数据）\n\n=== 搜索数据 ===\n${realData || "无"}`;
+
     return NextResponse.json({
-      report: response.text,
+      report: reportText,
       model: response.model,
       dataSource: `联网搜索(${searchMs}ms) + ${response.model}`,
     });
