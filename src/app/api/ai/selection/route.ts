@@ -3,7 +3,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 
-export const maxDuration = 30; // Vercel Pro/Hobby max
+export const maxDuration = 30;
 
 export async function POST(req: NextRequest) {
   try {
@@ -13,34 +13,45 @@ export async function POST(req: NextRequest) {
     const aiKey = process.env.DEEPSEEK_API_KEY || process.env.GEMINI_API_KEY || process.env.CLAUDE_API_KEY;
     if (!aiKey) return NextResponse.json({ report: null, message: "AI API Key 未配置。" });
 
-    // 并行搜索（2 个请求同时发）
+    // 并行搜索
     const { searchAmazonKeyword, searchAmazonASIN, webSearch } = await import("@/lib/search");
     const searchPromises = method === "asin"
       ? [searchAmazonASIN(input)]
-      : [searchAmazonKeyword(input), webSearch(`amazon.com best ${input} product`)];
-
+      : [searchAmazonKeyword(input), webSearch(`amazon best ${input} product`)];
     const startTime = Date.now();
     const searchResults = await Promise.all(searchPromises);
-    const realData = searchResults.filter(Boolean).join("\n\n");
+    const realData = (searchResults.filter(Boolean).join("\n") || "无搜索结果").substring(0, 4000);
     const searchMs = Date.now() - startTime;
 
-    // AI 分析
-    const { callAI } = await import("@/lib/ai");
-    const preferredModel = process.env.DEEPSEEK_API_KEY ? "deepseek" : process.env.GEMINI_API_KEY ? "gemini" : "claude";
+    // 调用 AI（加 try/catch 捕获错误）
+    let reportText = "";
+    let modelUsed = "";
+    let usage = { promptTokens: 0, completionTokens: 0 };
 
-    const response = await callAI({
-      model: preferredModel as "deepseek" | "gemini" | "claude",
-      systemPrompt: `你是亚马逊选品专家。请基于搜索数据分析，数据不足时用你的亚马逊知识补充，标注"基于经验"。
-报告框架：1.市场概况 2.竞争格局 3.关键词矩阵 4.利润测算 5.差异化空间 6.综合建议`,
-      userPrompt: `选品：${method} | ${input} | 站点：${marketplace || "US"}\n\n=== 实时数据 ===\n${realData || "（搜索无结果，请基于你的亚马逊知识给出定性分析）"}\n=== 请生成完整选品报告（市场概况、竞争格局、关键词、利润、差异化、建议） ===`,
-    });
+    try {
+      const { callAI } = await import("@/lib/ai");
+      const preferredModel = process.env.DEEPSEEK_API_KEY ? "deepseek" : process.env.GEMINI_API_KEY ? "gemini" : "claude";
+      const response = await callAI({
+        model: preferredModel as "deepseek" | "gemini" | "claude",
+        maxTokens: 4096,
+        systemPrompt: "你是亚马逊选品专家。基于数据+知识给出分析，标注数据来源。",
+        userPrompt: `${method}: ${input} (${marketplace || "US"})\n\n===搜索数据===\n${realData}\n\n请生成报告：1市场概况 2竞争格局 3关键词 4利润 5差异化 6建议`,
+      });
+      reportText = response.text;
+      modelUsed = response.model;
+      usage = response.usage;
+    } catch (aiError) {
+      reportText = `AI调用失败: ${aiError}`;
+    }
 
-    const reportText = response.text || `（AI 未生成报告）\n\n搜索耗时：${searchMs}ms\n使用模型：${response.model}\nToken用量：${response.usage.promptTokens}+${response.usage.completionTokens}\n\n=== 搜索数据 ===\n${realData || "无"}\n\n=== 可能原因 ===\n1. DeepSeek API返回了空内容（安全过滤或超出上下文长度）\n2. 搜索数据不足以生成报告\n请尝试换更具体的关键词重试。`;
+    if (!reportText) {
+      reportText = `AI未返回内容。Token: ${usage.promptTokens}+${usage.completionTokens}。搜索(${searchMs}ms):\n${realData}`;
+    }
 
     return NextResponse.json({
       report: reportText,
-      model: response.model,
-      dataSource: `联网搜索(${searchMs}ms) + ${response.model}`,
+      model: modelUsed,
+      dataSource: `搜索(${searchMs}ms) + ${modelUsed}`,
     });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
