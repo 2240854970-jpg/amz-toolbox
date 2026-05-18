@@ -42,25 +42,18 @@ async function callGemini(options: AICallOptions): Promise<AIResponse> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error("GEMINI_API_KEY not configured");
 
-  const modelName = options.jsonMode ? "gemini-2.5-pro" : "gemini-2.5-flash";
+  const modelName = "gemini-2.5-flash";
 
   const body: Record<string, unknown> = {
-    contents: [
-      {
-        parts: [
-          ...(options.systemPrompt ? [{ text: options.systemPrompt }] : []),
-          { text: options.userPrompt },
-        ],
-      },
-    ],
+    contents: [{ parts: [{ text: options.userPrompt }] }],
     generationConfig: {
       temperature: options.temperature ?? 0.7,
       maxOutputTokens: options.maxTokens ?? 8192,
     },
   };
 
-  if (options.jsonMode) {
-    (body.generationConfig as Record<string, unknown>).responseMimeType = "application/json";
+  if (options.systemPrompt) {
+    body.systemInstruction = { parts: [{ text: options.systemPrompt }] };
   }
 
   const res = await fetch(
@@ -72,10 +65,20 @@ async function callGemini(options: AICallOptions): Promise<AIResponse> {
     }
   );
 
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Gemini HTTP ${res.status}: ${errText.substring(0, 200)}`);
+  }
+
   const data = await res.json() as {
     candidates?: { content?: { parts?: { text?: string }[] } }[];
     usageMetadata?: { promptTokenCount: number; candidatesTokenCount: number };
+    error?: { message: string; code: number };
   };
+
+  if (data.error) {
+    throw new Error(`Gemini API错误: ${data.error.code} - ${data.error.message}`);
+  }
 
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
   return {
