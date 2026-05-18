@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     const realData = `${await search1688Supplier(productName)}\n\n${await webSearch(`${productName} factory OEM MOQ price`)}`;
 
     const { callAI } = await import("@/lib/ai");
-    const preferredModel = process.env.DEEPSEEK_API_KEY ? "deepseek" : process.env.GEMINI_API_KEY ? "gemini" : "claude";
+    const preferredModel = process.env.GEMINI_API_KEY ? "gemini" : process.env.DEEPSEEK_API_KEY ? "deepseek" : "claude";
 
     const response = await callAI({
       model: preferredModel as "deepseek" | "gemini" | "claude",

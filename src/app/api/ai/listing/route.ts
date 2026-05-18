@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
       : await webSearch(`amazon "${searchTarget}" product listing analysis review`);
 
     const { callAI } = await import("@/lib/ai");
-    const preferredModel = process.env.DEEPSEEK_API_KEY ? "deepseek" : process.env.GEMINI_API_KEY ? "gemini" : "claude";
+    const preferredModel = process.env.GEMINI_API_KEY ? "gemini" : process.env.DEEPSEEK_API_KEY ? "deepseek" : "claude";
 
     const stepPrompts: Record<number, string> = {
       1: `你是亚马逊数据分析师。基于搜索数据，分析产品市场表现：月销量预估、BSR、评论、竞品关键参数。`,
