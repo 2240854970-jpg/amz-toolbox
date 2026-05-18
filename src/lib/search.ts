@@ -21,12 +21,13 @@ export async function searchAmazonKeyword(keyword: string): Promise<string> {
 }
 
 export async function searchAmazonASIN(asin: string): Promise<string> {
-  // 直接抓 Amazon 商品页 + Bing 搜评论
-  const [direct, reviews] = await Promise.all([
+  // 并行：Bing搜索 + 直接抓取Amazon商品页
+  const results = await Promise.all([
+    webSearch(`amazon.com/dp/${asin}`),
+    webSearch(`"${asin}" review`),
     fetchAmazonProduct(asin),
-    webSearch(`"${asin}" amazon review rating`),
   ]);
-  const r = [direct, reviews].filter(Boolean).join("\n");
+  const r = results.filter(Boolean).join("\n");
   return r || `（未搜到 ASIN ${asin} 数据）`;
 }
 
