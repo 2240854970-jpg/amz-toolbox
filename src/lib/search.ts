@@ -21,7 +21,12 @@ export async function searchAmazonKeyword(keyword: string): Promise<string> {
 }
 
 export async function searchAmazonASIN(asin: string): Promise<string> {
-  const r = await webSearch(`amazon ${asin} product review`);
+  // 直接抓 Amazon 商品页 + Bing 搜评论
+  const [direct, reviews] = await Promise.all([
+    fetchAmazonProduct(asin),
+    webSearch(`"${asin}" amazon review rating`),
+  ]);
+  const r = [direct, reviews].filter(Boolean).join("\n");
   return r || `（未搜到 ASIN ${asin} 数据）`;
 }
 
@@ -31,6 +36,52 @@ export async function search1688Supplier(name: string): Promise<string> {
 }
 
 // === impl ===
+
+/** 直接抓取 Amazon 商品页获取标题/价格/评分 */
+async function fetchAmazonProduct(asin: string): Promise<string> {
+  try {
+    const res = await fetch(`https://www.amazon.com/dp/${asin}`, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
+      signal: AbortSignal.timeout(TO),
+    });
+    if (!res.ok) return "";
+    const html = await res.text();
+
+    // 提取标题
+    const titleMatch = html.match(/<span[^>]*id="productTitle"[^>]*>([^<]+)</);
+    const title = titleMatch?.[1]?.trim() || "";
+
+    // 提取评分
+    const ratingMatch = html.match(/(\d\.\d) out of 5 stars/);
+    const rating = ratingMatch?.[1] || "";
+
+    // 提取评论数
+    const reviewMatch = html.match(/([\d,]+) ratings/);
+    const reviews = reviewMatch?.[1] || "";
+
+    // 提取价格
+    const priceMatch = html.match(/\$([\d.]+)/);
+    const price = priceMatch?.[0] || "";
+
+    // 提取 BSR
+    const bsrMatch = html.match(/Best Sellers Rank[^#]*#([\d,]+)/);
+    const bsr = bsrMatch?.[1] || "";
+
+    const parts = [];
+    if (title) parts.push(`商品标题: ${title}`);
+    if (rating) parts.push(`评分: ${rating} 星`);
+    if (reviews) parts.push(`评论数: ${reviews}`);
+    if (price) parts.push(`售价: ${price}`);
+    if (bsr) parts.push(`BSR: #${bsr}`);
+
+    return parts.length > 0 ? `Amazon商品页数据:\n${parts.join("\n")}` : "";
+  } catch {
+    return "";
+  }
+}
 
 async function braveSearch(q: string): Promise<string> {
   try {
