@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
       userPrompt: `选品：${method} | ${input} | 站点：${marketplace || "US"}\n\n=== 实时数据 ===\n${realData || "（搜索无结果，请基于你的亚马逊知识给出定性分析）"}\n=== 请生成完整选品报告（市场概况、竞争格局、关键词、利润、差异化、建议） ===`,
     });
 
-    const reportText = response.text || `（AI 未生成报告，请查看原始搜索数据）\n\n=== 搜索数据 ===\n${realData || "无"}`;
+    const reportText = response.text || `（AI 未生成报告）\n\n搜索耗时：${searchMs}ms\n使用模型：${response.model}\nToken用量：${response.usage.promptTokens}+${response.usage.completionTokens}\n\n=== 搜索数据 ===\n${realData || "无"}\n\n=== 可能原因 ===\n1. DeepSeek API返回了空内容（安全过滤或超出上下文长度）\n2. 搜索数据不足以生成报告\n请尝试换更具体的关键词重试。`;
 
     return NextResponse.json({
       report: reportText,
