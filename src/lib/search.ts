@@ -67,20 +67,36 @@ async function fetchAmazonProduct(asin: string): Promise<string> {
         continue; // 被拦截，换 UA 重试
       }
 
+      // 优先从 JSON-LD 结构化数据提取（最准确）
+      const jsonMatch = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
+      if (jsonMatch) {
+        try {
+          const json = JSON.parse(jsonMatch[1]);
+          const parts: string[] = [];
+          if (json.name) parts.push(`商品标题: ${json.name}`);
+          if (json.aggregateRating?.ratingValue) parts.push(`评分: ${json.aggregateRating.ratingValue} 星`);
+          if (json.aggregateRating?.reviewCount) parts.push(`评论数: ${json.aggregateRating.reviewCount}`);
+          if (json.offers?.price) parts.push(`售价: $${json.offers.price}`);
+          if (json.brand) parts.push(`品牌: ${json.brand}`);
+          if (json.description) parts.push(`描述: ${json.description.substring(0, 200)}`);
+          if (json.category) parts.push(`类目: ${json.category}`);
+          if (parts.length >= 2) return `Amazon商品页数据:\n${parts.join("\n")}`;
+        } catch { /* JSON解析失败，回退到正则 */ }
+      }
+
+      // 回退：正则提取
       const titleMatch = html.match(/<span[^>]*id="productTitle"[^>]*>([^<]+)</);
-      if (!titleMatch) continue; // 没找到标题，继续
+      if (!titleMatch) continue;
 
       const title = titleMatch[1].trim();
-      const ratingMatch = html.match(/(\d\.\d) out of 5/);
-      const reviewMatch = html.match(/([\d,]+) ratings/);
-      const priceMatch = html.match(/\$([\d.]+)/);
-      const bsrMatch = html.match(/Best Sellers Rank[^#]*#([\d,]+)/);
+      const ratingMatch = html.match(/"acrCustomerReviewText"[^>]*>([\d,]+) [a-z]/);
+      const starMatch = html.match(/a-star-(\d)/);
+      const priceMatch = html.match(/a-price-whole[^>]*>([\d,.]+)</);
 
       const parts = [`商品标题: ${title}`];
-      if (ratingMatch) parts.push(`评分: ${ratingMatch[1]} 星`);
-      if (reviewMatch) parts.push(`评论数: ${reviewMatch[1]}`);
-      if (priceMatch) parts.push(`售价: ${priceMatch[0]}`);
-      if (bsrMatch) parts.push(`BSR: #${bsrMatch[1]}`);
+      if (starMatch) parts.push(`评分: ${starMatch[1]}.0 星`);
+      if (ratingMatch) parts.push(`评论数: ${ratingMatch[1]}`);
+      if (priceMatch) parts.push(`售价: $${priceMatch[1]}`);
 
       return `Amazon商品页数据:\n${parts.join("\n")}`;
     } catch { continue; }
