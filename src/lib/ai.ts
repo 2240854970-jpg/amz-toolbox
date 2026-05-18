@@ -111,13 +111,24 @@ async function callDeepSeek(options: AICallOptions): Promise<AIResponse> {
     }),
   });
 
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`DeepSeek HTTP ${res.status}: ${errText.substring(0, 200)}`);
+  }
+
   const data = await res.json() as {
-    choices?: { message?: { content?: string } }[];
+    choices?: { message?: { content?: string; refusal?: string } }[];
     usage?: { prompt_tokens: number; completion_tokens: number };
+    error?: { message: string; type: string };
   };
 
+  // 如果 API 返回错误
+  if (data.error) {
+    throw new Error(`DeepSeek API错误: ${data.error.type} - ${data.error.message}`);
+  }
+
   return {
-    text: data.choices?.[0]?.message?.content || "",
+    text: data.choices?.[0]?.message?.content || data.choices?.[0]?.message?.refusal || "",
     model: "deepseek",
     usage: {
       promptTokens: data.usage?.prompt_tokens || 0,
