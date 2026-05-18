@@ -13,15 +13,15 @@ export async function webSearch(query: string): Promise<string> {
 
 export async function searchAmazonKeyword(keyword: string): Promise<string> {
   const results = await Promise.all([
-    webSearch(`site:amazon.com "${keyword}"`),
-    webSearch(`"${keyword}" amazon review price`),
+    webSearch(`amazon.com best ${keyword}`),
+    webSearch(`${keyword} amazon review price rating`),
   ]);
   const r = results.filter(Boolean).join("\n\n");
   return r || `（未搜到 "${keyword}" 数据）`;
 }
 
 export async function searchAmazonASIN(asin: string): Promise<string> {
-  const r = await webSearch(`amazon ${asin} review price`);
+  const r = await webSearch(`amazon ${asin} product review`);
   return r || `（未搜到 ASIN ${asin} 数据）`;
 }
 

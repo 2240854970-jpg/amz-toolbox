@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
     const { searchAmazonKeyword, searchAmazonASIN, webSearch } = await import("@/lib/search");
     const searchPromises = method === "asin"
       ? [searchAmazonASIN(input)]
-      : [searchAmazonKeyword(input), webSearch(`site:amazon.com "${input}" review`)];
+      : [searchAmazonKeyword(input), webSearch(`amazon.com best ${input} product`)];
 
     const startTime = Date.now();
     const searchResults = await Promise.all(searchPromises);
