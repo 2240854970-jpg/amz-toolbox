@@ -1,5 +1,6 @@
-// 联网搜索工具 —— 拉取真实数据喂给 AI
-// 所有超时 3 秒，适配 Vercel Hobby 10s 限制
+// 联网搜索 + Amazon 抓取
+
+import { scrapeAmazonProduct } from "./scrape-amazon";
 
 const TO = 3000;
 
@@ -21,13 +22,21 @@ export async function searchAmazonKeyword(keyword: string): Promise<string> {
 }
 
 export async function searchAmazonASIN(asin: string): Promise<string> {
-  const results = await Promise.all([
-    webSearch(`https://www.amazon.com/dp/${asin}`),
-    webSearch(`${asin} amazon`),
-    fetchAmazonProduct(asin),
-  ]);
-  const r = results.filter(Boolean).join("\n");
-  return r || `（未搜到 ASIN ${asin} 数据，请确认ASIN正确）`;
+  // Puppeteer 浏览器抓取 Amazon 商品页
+  const data = await scrapeAmazonProduct(asin);
+  if (data) {
+    const parts = [`商品标题: ${data.title}`];
+    if (data.rating) parts.push(`评分: ${data.rating} 星`);
+    if (data.reviews) parts.push(`评论数: ${data.reviews}`);
+    if (data.price) parts.push(`售价: ${data.price}`);
+    if (data.bsr) parts.push(`BSR: #${data.bsr}`);
+    if (data.category) parts.push(`类目: ${data.category}`);
+    if (data.bulletPoints.length) parts.push(`卖点:\n${data.bulletPoints.map(b => `  - ${b}`).join("\n")}`);
+    if (data.description) parts.push(`描述: ${data.description}`);
+    return `Amazon商品页数据:\n${parts.join("\n")}`;
+  }
+  const r = await webSearch(`https://www.amazon.com/dp/${asin}`);
+  return r || `（未搜到 ASIN ${asin} 数据）`;
 }
 
 export async function search1688Supplier(name: string): Promise<string> {
@@ -36,82 +45,14 @@ export async function search1688Supplier(name: string): Promise<string> {
 }
 
 // === impl ===
-
-/** 直接抓取 Amazon 商品页获取标题/价格/评分 */
-async function fetchAmazonProduct(asin: string): Promise<string> {
-  const userAgents = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
-  ];
-
-  for (const ua of userAgents) {
-    try {
-      const res = await fetch(`https://www.amazon.com/dp/${asin}`, {
-        headers: {
-          "User-Agent": ua,
-          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          "Accept-Language": "en-US,en;q=0.5",
-          "Accept-Encoding": "gzip, deflate, br",
-          "Connection": "keep-alive",
-          "Upgrade-Insecure-Requests": "1",
-        },
-        signal: AbortSignal.timeout(TO),
-      });
-      if (!res.ok) continue;
-
-      const html = await res.text();
-
-      // 检查是否被 Amazon 拦截（返回了验证页面）
-      if (html.includes("Type the characters you see") || html.includes("Sorry, we just need to make sure")) {
-        continue; // 被拦截，换 UA 重试
-      }
-
-      // 优先从 JSON-LD 结构化数据提取（最准确）
-      const jsonMatch = html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
-      if (jsonMatch) {
-        try {
-          const json = JSON.parse(jsonMatch[1]);
-          const parts: string[] = [];
-          if (json.name) parts.push(`商品标题: ${json.name}`);
-          if (json.aggregateRating?.ratingValue) parts.push(`评分: ${json.aggregateRating.ratingValue} 星`);
-          if (json.aggregateRating?.reviewCount) parts.push(`评论数: ${json.aggregateRating.reviewCount}`);
-          if (json.offers?.price) parts.push(`售价: $${json.offers.price}`);
-          if (json.brand) parts.push(`品牌: ${json.brand}`);
-          if (json.description) parts.push(`描述: ${json.description.substring(0, 200)}`);
-          if (json.category) parts.push(`类目: ${json.category}`);
-          if (parts.length >= 2) return `Amazon商品页数据:\n${parts.join("\n")}`;
-        } catch { /* JSON解析失败，回退到正则 */ }
-      }
-
-      // 回退：正则提取
-      const titleMatch = html.match(/<span[^>]*id="productTitle"[^>]*>([^<]+)</);
-      if (!titleMatch) continue;
-
-      const title = titleMatch[1].trim();
-      const ratingMatch = html.match(/"acrCustomerReviewText"[^>]*>([\d,]+) [a-z]/);
-      const starMatch = html.match(/a-star-(\d)/);
-      const priceMatch = html.match(/a-price-whole[^>]*>([\d,.]+)</);
-
-      const parts = [`商品标题: ${title}`];
-      if (starMatch) parts.push(`评分: ${starMatch[1]}.0 星`);
-      if (ratingMatch) parts.push(`评论数: ${ratingMatch[1]}`);
-      if (priceMatch) parts.push(`售价: $${priceMatch[1]}`);
-
-      return `Amazon商品页数据:\n${parts.join("\n")}`;
-    } catch { continue; }
-  }
-  return "";
-}
-
 async function braveSearch(q: string): Promise<string> {
   try {
     const res = await fetch(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(q)}&count=3`, {
-      headers: { "Accept": "application/json", "Accept-Encoding": "gzip", "X-Subscription-Token": process.env.BRAVE_API_KEY! },
+      headers: { "Accept": "application/json", "X-Subscription-Token": process.env.BRAVE_API_KEY! },
       signal: AbortSignal.timeout(TO),
     });
     if (!res.ok) return "";
-    const d = await res.json() as { web?: { results?: { title: string; description: string; url: string }[] } };
+    const d = await res.json() as { web?: { results?: { title: string; description: string }[] } };
     return d.web?.results?.map(r => `${r.title}\n${r.description}`).join("\n\n") || "";
   } catch { return ""; }
 }
